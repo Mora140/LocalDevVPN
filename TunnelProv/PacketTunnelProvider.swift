@@ -17,13 +17,10 @@ private func tunnelLog(_ message: @autoclosure () -> String) {
 #endif
 }
 
+
 class PacketTunnelProvider: NEPacketTunnelProvider {
-    var tunnelDeviceIp: String = TunnelConstants.defaultDeviceIP
-    var tunnelFakeIp: String = TunnelConstants.defaultFakeIP
-    var tunnelSubnetMask: String = TunnelConstants.defaultSubnetMask
-    
-    private var deviceIpValue: UInt32 = 0
-    private var fakeIpValue: UInt32 = 0
+    var tunnelIfaceIP: String = TunnelConstants.defaultIfaceIP
+    var tunnelPeerIP: String = TunnelConstants.defaultPeerIP
     
     override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         if let options = options {
@@ -34,31 +31,35 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             tunnelLog("startTunnel: options is nil")
         }
         
-        if let deviceIp = options?["TunnelDeviceIP"] as? String {
-            tunnelLog("Option TunnelDeviceIP overridden to: \(deviceIp)")
-            tunnelDeviceIp = deviceIp
+        if let ifaceIp = options?["TunnelIfaceIP"] as? String {
+            tunnelLog("Option TunnelIfaceIP overridden to: \(ifaceIp)")
+            tunnelIfaceIP = ifaceIp
         }
-        if let fakeIp = options?["TunnelFakeIP"] as? String {
-            tunnelLog("Option TunnelFakeIP overridden to: \(fakeIp)")
-            tunnelFakeIp = fakeIp
-        }
-        if let subnetMask = options?["TunnelSubnetMask"] as? String {
-            tunnelLog("Option TunnelSubnetMask overridden to: \(subnetMask)")
-            tunnelSubnetMask = subnetMask
+        if let peerIp = options?["TunnelPeerIP"] as? String {
+            tunnelLog("Option TunnelPeerIP overridden to: \(peerIp)")
+            tunnelPeerIP = peerIp
         }
         
-        deviceIpValue = ipToUInt32(tunnelDeviceIp)
-        fakeIpValue = ipToUInt32(tunnelFakeIp)
+        let ifaceEndpoint = CIDREndpoint(tunnelIfaceIP, defaultPrefix: 24)
+        let peerEndpoint = CIDREndpoint(tunnelPeerIP, defaultPrefix: 32)
         
-        tunnelLog("Configuring P2P settings: remoteAddress=\(tunnelFakeIp), localAddress=\(tunnelDeviceIp), subnetMask=\(tunnelSubnetMask)")
-        let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: tunnelFakeIp)
-        let ipv4 = NEIPv4Settings(addresses: [tunnelDeviceIp], subnetMasks: [tunnelSubnetMask])
-        ipv4.includedRoutes = [
-            NEIPv4Route(destinationAddress: tunnelDeviceIp, subnetMask: tunnelSubnetMask),
-            NEIPv4Route(destinationAddress: tunnelFakeIp, subnetMask: tunnelSubnetMask)
+        tunnelLog("Configuring P2P settings: peer=\(peerEndpoint.ip)/\(peerEndpoint.prefix) (\(peerEndpoint.subnetMask)), iface=\(ifaceEndpoint.ip)/\(ifaceEndpoint.prefix) (\(ifaceEndpoint.subnetMask))")
+        
+        // tunnel iface configuration
+        let ifaceIPv4 = NEIPv4Settings(addresses: [ifaceEndpoint.ip], subnetMasks: [ifaceEndpoint.subnetMask])
+        let tunnelDestinationIPv4Routes = [
+            // actual destination routes of this VPN tunnel
+            NEIPv4Route(destinationAddress: peerEndpoint.ip, subnetMask: peerEndpoint.subnetMask)
         ]
-        ipv4.excludedRoutes = [.default()]
-        settings.ipv4Settings = ipv4
+        ifaceIPv4.includedRoutes = tunnelDestinationIPv4Routes
+        ifaceIPv4.excludedRoutes = [.default()]
+
+        // Tunneling config
+        let settings = NEPacketTunnelNetworkSettings(
+            // NOTE: 'tunnelRemoteAddress' is just for UI concerns and is not involved in routing
+            tunnelRemoteAddress: peerEndpoint.ip
+        )   
+        settings.ipv4Settings = ifaceIPv4
         
         tunnelLog("Calling setTunnelNetworkSettings...")
         setTunnelNetworkSettings(settings) { error in
@@ -74,47 +75,20 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     
     func setPackets() {
         packetFlow.readPackets { [self] packets, protocols in
-            let fakeip = self.fakeIpValue
-            let deviceip = self.deviceIpValue
             var modified = packets
             
             for i in modified.indices where protocols[i].int32Value == AF_INET && modified[i].count >= 20 {
                 modified[i].withUnsafeMutableBytes { bytes in
                     guard let ptr = bytes.baseAddress?.assumingMemoryBound(to: UInt32.self) else { return }
-                    let src = UInt32(bigEndian: ptr[3])
-                    let dst = UInt32(bigEndian: ptr[4])
-                    
-                    if src == deviceip {
-                        ptr[3] = fakeip.bigEndian
-                    }
-                    if dst == fakeip {
-                        ptr[4] = deviceip.bigEndian
-                    }
+                    let src = ptr[3]
+                    let dst = ptr[4]
+                    ptr[3] = dst
+                    ptr[4] = src
                 }
             }
             
             self.packetFlow.writePackets(modified, withProtocols: protocols)
             setPackets()
         }
-    }
-
-    private func ipToUInt32(_ ipString: String) -> UInt32 {
-        let components = ipString.split(separator: ".")
-        guard components.count == 4,
-              let b1 = UInt32(components[0]),
-              let b2 = UInt32(components[1]),
-              let b3 = UInt32(components[2]),
-              let b4 = UInt32(components[3]) else {
-            return 0
-        }
-        return (b1 << 24) | (b2 << 16) | (b3 << 8) | b4
-    }
-
-    private func ipToString(_ ip: UInt32) -> String {
-        let b1 = (ip >> 24) & 0xFF
-        let b2 = (ip >> 16) & 0xFF
-        let b3 = (ip >> 8) & 0xFF
-        let b4 = ip & 0xFF
-        return "\(b1).\(b2).\(b3).\(b4)"
     }
 }

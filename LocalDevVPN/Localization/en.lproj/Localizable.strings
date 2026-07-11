@@ -60,6 +60,8 @@
 "device_ip" = "Device IP";
 "tunnel_ip" = "Tunnel IP";
 "subnet_mask" = "Subnet Mask";
+"allow_intermediate_addresses" = "Allow Intermediate Addresses";
+"allow_intermediate_addresses_desc" = "When intermediate addresses are allowed, non-base CIDR addresses (e.g. 11.7.0.2/30) are accepted and normalized to their network base route (11.7.0.0/30).";
 "app_information" = "App Information";
 "privacy_policy" = "Privacy Policy";
 "data_collection_policy" = "Data Collection Policy";

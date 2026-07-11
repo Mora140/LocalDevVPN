@@ -62,11 +62,19 @@
 			);
 			target = 4EB3C76D2D96715400C1B22C /* TunnelProv */;
 		};
+		A809C3653031D3E6005DF922 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				CIDRValidator.swift,
+				Constants.swift,
+			);
+			target = 4EB3C7572D96631A00C1B22C /* LocalDevVPN */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		4EB3C75A2D96631A00C1B22C /* LocalDevVPN */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (190996C92ED0FC91006411F1 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = LocalDevVPN; sourceTree = "<group>"; };
-		4EB3C7722D96715400C1B22C /* TunnelProv */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (4EB3C77A2D96715400C1B22C /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = TunnelProv; sourceTree = "<group>"; };
+		4EB3C7722D96715400C1B22C /* TunnelProv */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (A809C3653031D3E6005DF922 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, 4EB3C77A2D96715400C1B22C /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = TunnelProv; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
