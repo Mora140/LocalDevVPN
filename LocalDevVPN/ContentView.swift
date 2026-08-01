@@ -727,11 +727,15 @@ struct ContentView: View {
     }
 
     private var backgroundColor: Color {
+        #if os(tvOS)
+            return colorScheme == .dark ? .black : Color(white: 0.94)
+        #else
         if colorScheme == .dark {
             return Color(.systemBackground)
         } else {
             return Color(.systemGroupedBackground)
         }
+        #endif
     }
 }
 
@@ -802,24 +806,13 @@ struct StatusOverviewCard: View {
 
                 Divider()
 
-                HStack {
-                    Label {
-                        Text(statusTip)
-                    } icon: {
-                        Image(systemName: "info.circle")
-                    }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                    Spacer()
-
-                    HStack(spacing: 4) {
-                        Text("connected_at")
-                        Text(Date(), style: .time)
-                    }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Label {
+                    Text(statusTip)
+                } icon: {
+                    Image(systemName: "info.circle")
                 }
+                .font(.caption)
+                .foregroundColor(.secondary)
             }
         }
     }
@@ -1061,7 +1054,7 @@ struct DashboardCard<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color(.secondarySystemBackground))
+                    .fill(cardBackgroundColor)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
@@ -1072,6 +1065,14 @@ struct DashboardCard<Content: View>: View {
 
     private var borderColor: Color {
         colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06)
+    }
+
+    private var cardBackgroundColor: Color {
+        #if os(tvOS)
+            return colorScheme == .dark ? Color(white: 0.10) : .white
+        #else
+            return Color(.secondarySystemBackground)
+        #endif
     }
 
     private var shadowColor: Color {

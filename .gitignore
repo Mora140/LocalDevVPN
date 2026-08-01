@@ -1,6 +1,42 @@
-CodeSigning.xcconfig
-*.ipa
-/build
+# macOS
+.DS_Store
 
-**/.DS_Store
-/LocalDevVPN.xcodeproj/project.xcworkspace/xcuserdata/dan.xcuserdatad/UserInterfaceState.xcuserstate
+# Xcode user-specific data
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+*.moved-aside
+
+# Xcode build products and generated files
+build/
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
+*.xcarchive
+*.swiftdoc
+*.swiftmodule
+*.swiftsourceinfo
+
+# Swift Package Manager
+.build/
+.swiftpm/xcode/package.xcworkspace/xcuserdata/
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Dependency managers
+Pods/
+Carthage/Build/
+
+# fastlane generated artifacts
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output/
+
+# Local code-signing configuration
+CodeSigning.xcconfig
