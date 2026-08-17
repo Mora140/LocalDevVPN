@@ -37,6 +37,11 @@ class VPNLogger: ObservableObject {
 
 // MARK: - Tunnel Manager
 
+struct TunnelAddresses {
+    let interfaceIP: String
+    let peerIP: String
+}
+
 class TunnelManager: ObservableObject {
     @Published var hasLocalDeviceSupport = false
     @Published var tunnelStatus: TunnelStatus = .disconnected
@@ -47,6 +52,7 @@ class TunnelManager: ObservableObject {
     @Published var vpnManager: NETunnelProviderManager?
     private var vpnObserver: NSObjectProtocol?
     private var isProcessingStatusChange = false
+    private var pendingStartAddresses: TunnelAddresses?
     private let isSimulator: Bool = {
         #if targetEnvironment(simulator)
             return true
@@ -61,6 +67,10 @@ class TunnelManager: ObservableObject {
 
     private var tunnelPeerIP: String {
         UserDefaults.standard.string(forKey: "TunnelPeerIP") ?? TunnelConstants.defaultPeerIP
+    }
+
+    var configuredAddresses: TunnelAddresses {
+        TunnelAddresses(interfaceIP: tunnelIfaceIP, peerIP: tunnelPeerIP)
     }
 
     private var tunnelBundleId: String {
@@ -349,7 +359,34 @@ class TunnelManager: ObservableObject {
         }
     }
 
-    func startVPN() {
+    @MainActor
+    func isVPNActive() async throws -> Bool {
+        if isSimulator {
+            return tunnelStatus == .connected || tunnelStatus == .connecting
+        }
+
+        let managers = try await NETunnelProviderManager.loadAllFromPreferences()
+        let localManagers = managers.filter { manager in
+            let proto = manager.protocolConfiguration as? NETunnelProviderProtocol
+            return proto?.providerBundleIdentifier == tunnelBundleId
+        }
+        let manager = localManagers.first { manager in
+            let status = manager.connection.status
+            return status == .connected || status == .connecting || status == .reasserting
+        } ?? localManagers.first
+
+        vpnManager = manager
+        guard let manager = manager else {
+            tunnelStatus = .disconnected
+            return false
+        }
+
+        updateTunnelStatus(from: manager.connection.status)
+        let status = manager.connection.status
+        return status == .connected || status == .connecting || status == .reasserting
+    }
+
+    func startVPN(temporaryAddresses: TunnelAddresses? = nil) {
         if isSimulator {
             simulateStartVPN()
             return
@@ -384,34 +421,35 @@ class TunnelManager: ObservableObject {
             {
                 VPNLogger.shared.log("Disconnecting existing VPN connection before starting LocalDevVPN")
 
+                self.pendingStartAddresses = temporaryAddresses
                 UserDefaults.standard.set(true, forKey: "ShouldStartLocalDevVPNAfterDisconnect")
                 activeManager.connection.stopVPNTunnel()
                 return
             }
 
-            self.initializeAndStartLocalDevVPN()
+            self.initializeAndStartLocalDevVPN(temporaryAddresses: temporaryAddresses)
         }
     }
 
-    private func initializeAndStartLocalDevVPN() {
+    private func initializeAndStartLocalDevVPN(temporaryAddresses: TunnelAddresses?) {
         if let manager = vpnManager {
             manager.loadFromPreferences { [weak self] error in
                 guard let self = self else { return }
 
                 if let error = error {
                     VPNLogger.shared.log("Error reloading manager: \(error.localizedDescription)")
-                    self.createAndStartVPN()
+                    self.createAndStartVPN(temporaryAddresses: temporaryAddresses)
                     return
                 }
 
-                self.startExistingVPN(manager: manager)
+                self.startExistingVPN(manager: manager, temporaryAddresses: temporaryAddresses)
             }
         } else {
-            createAndStartVPN()
+            createAndStartVPN(temporaryAddresses: temporaryAddresses)
         }
     }
 
-    private func createAndStartVPN() {
+    private func createAndStartVPN(temporaryAddresses: TunnelAddresses?) {
         NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, error in
             guard let self = self else { return }
 
@@ -437,7 +475,7 @@ class TunnelManager: ObservableObject {
                     }
 
                     if let manager = stosManagers.first {
-                        self.startExistingVPN(manager: manager)
+                        self.startExistingVPN(manager: manager, temporaryAddresses: temporaryAddresses)
                     }
                     return
                 }
@@ -448,12 +486,15 @@ class TunnelManager: ObservableObject {
                 DispatchQueue.main.async { [weak self] in
                     self?.vpnManager = manager
                 }
-                self.startExistingVPN(manager: manager)
+                self.startExistingVPN(manager: manager, temporaryAddresses: temporaryAddresses)
             }
         }
     }
 
-    private func startExistingVPN(manager: NETunnelProviderManager) {
+    private func startExistingVPN(
+        manager: NETunnelProviderManager,
+        temporaryAddresses: TunnelAddresses?
+    ) {
         // First check the actual current status
         let currentStatus = manager.connection.status
         VPNLogger.shared.log("Current VPN status before start attempt: \(currentStatus.rawValue)")
@@ -513,9 +554,10 @@ class TunnelManager: ObservableObject {
                     self?.tunnelStatus = .connecting
                 }
 
+                let addresses = temporaryAddresses ?? self.configuredAddresses
                 let options: [String: NSObject] = [
-                    TunnelConstants.ifaceIPConfigurationKey: self.tunnelIfaceIP as NSObject,
-                    TunnelConstants.peerIPConfigurationKey: self.tunnelPeerIP as NSObject,
+                    TunnelConstants.ifaceIPConfigurationKey: addresses.interfaceIP as NSObject,
+                    TunnelConstants.peerIPConfigurationKey: addresses.peerIP as NSObject,
                 ]
 
                 do {
@@ -532,6 +574,9 @@ class TunnelManager: ObservableObject {
     }
 
     func stopVPN() {
+        pendingStartAddresses = nil
+        UserDefaults.standard.removeObject(forKey: "ShouldStartLocalDevVPNAfterDisconnect")
+
         if isSimulator {
             simulateStopVPN()
             return
@@ -548,8 +593,6 @@ class TunnelManager: ObservableObject {
 
         manager.connection.stopVPNTunnel()
         VPNLogger.shared.log("LocalDevVPN tunnel stop initiated")
-
-        UserDefaults.standard.removeObject(forKey: "ShouldStartLocalDevVPNAfterDisconnect")
     }
 
     func updateConfigAndRestart(shouldRestart: Bool) {
@@ -587,6 +630,7 @@ class TunnelManager: ObservableObject {
                 
                 if shouldRestart {
                     VPNLogger.shared.log("Restarting LocalDevVPN tunnel to apply new configuration...")
+                    self?.pendingStartAddresses = nil
                     UserDefaults.standard.set(true, forKey: "ShouldStartLocalDevVPNAfterDisconnect")
                     manager.connection.stopVPNTunnel()
                 }
@@ -609,9 +653,11 @@ class TunnelManager: ObservableObject {
             UserDefaults.standard.bool(forKey: "ShouldStartLocalDevVPNAfterDisconnect")
         {
             UserDefaults.standard.removeObject(forKey: "ShouldStartLocalDevVPNAfterDisconnect")
+            let temporaryAddresses = pendingStartAddresses
+            pendingStartAddresses = nil
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                self?.initializeAndStartLocalDevVPN()
+                self?.initializeAndStartLocalDevVPN(temporaryAddresses: temporaryAddresses)
             }
             return
         }
