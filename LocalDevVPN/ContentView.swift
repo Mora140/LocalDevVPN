@@ -1175,6 +1175,14 @@ struct SettingsView: View {
         ifaceError == nil && peerError == nil && pairError == nil
     }
 
+    private var effectiveIfaceIP: String {
+        resolvedInput(draftIfaceIP, defaultValue: TunnelConstants.defaultIfaceIP)
+    }
+
+    private var effectivePeerIP: String {
+        resolvedInput(draftPeerIP, defaultValue: TunnelConstants.defaultPeerIP)
+    }
+
     var body: some View {
         NBNavigationStack {
             List {
@@ -1190,7 +1198,11 @@ struct SettingsView: View {
                     footer: Text("allow_intermediate_addresses_desc")
                 ) {
                     VStack(alignment: .leading, spacing: 6) {
-                        networkConfigRow(label: "tunnel_ip", text: $draftIfaceIP)
+                        networkConfigRow(
+                            label: "tunnel_ip",
+                            text: $draftIfaceIP,
+                            defaultValue: TunnelConstants.defaultIfaceIP
+                        )
                         if let error = ifaceError {
                             Text(error)
                                 .font(.caption2)
@@ -1204,7 +1216,11 @@ struct SettingsView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
-                        networkConfigRow(label: "device_ip", text: $draftPeerIP)
+                        networkConfigRow(
+                            label: "device_ip",
+                            text: $draftPeerIP,
+                            defaultValue: TunnelConstants.defaultPeerIP
+                        )
                         if let error = peerError {
                             Text(error)
                                 .font(.caption2)
@@ -1351,8 +1367,8 @@ struct SettingsView: View {
     }
 
     private func saveAndApply() {
-        savedIfaceIP = draftIfaceIP
-        savedPeerIP = draftPeerIP
+        savedIfaceIP = effectiveIfaceIP
+        savedPeerIP = effectivePeerIP
         savedAllowIntermediate = draftAllowIntermediate
 
         let isRunning = tunnelManager.tunnelStatus == .connected || tunnelManager.tunnelStatus == .connecting
@@ -1369,7 +1385,7 @@ struct SettingsView: View {
 
         do {
             let res = try CIDRValidator.shared.validateCIDR(
-                draftIfaceIP,
+                effectiveIfaceIP,
                 isRouteDestination: false,
                 allowIntermediateAddresses: true,
                 defaultPrefix: 24
@@ -1381,7 +1397,7 @@ struct SettingsView: View {
 
         do {
             let res = try CIDRValidator.shared.validateCIDR(
-                draftPeerIP,
+                effectivePeerIP,
                 isRouteDestination: true,
                 allowIntermediateAddresses: draftAllowIntermediate,
                 defaultPrefix: 24
@@ -1394,8 +1410,8 @@ struct SettingsView: View {
         if ifaceError == nil && peerError == nil {
             do {
                 _ = try CIDRValidator.shared.validatePair(
-                    tunnelIfaceInput: draftIfaceIP,
-                    tunnelPeerInput: draftPeerIP,
+                    tunnelIfaceInput: effectiveIfaceIP,
+                    tunnelPeerInput: effectivePeerIP,
                     allowIntermediateAddresses: draftAllowIntermediate
                 )
             } catch {
@@ -1404,14 +1420,24 @@ struct SettingsView: View {
         }
     }
 
-    private func networkConfigRow(label: LocalizedStringKey, text: Binding<String>) -> some View {
+    private func resolvedInput(_ input: String, defaultValue: String) -> String {
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedInput.isEmpty ? defaultValue : trimmedInput
+    }
+
+    private func networkConfigRow(
+        label: LocalizedStringKey,
+        text: Binding<String>,
+        defaultValue: String
+    ) -> some View {
         HStack {
             Text(label)
             Spacer()
-            TextField(label, text: text)
+            TextField(defaultValue, text: text)
                 .multilineTextAlignment(.trailing)
                 .foregroundColor(.secondary)
                 .keyboardType(.numbersAndPunctuation)
+                .accessibilityLabel(Text(label))
                 .onChange(of: text.wrappedValue) { _ in
                     validateAll()
                     if !shownTunnelAlert {
