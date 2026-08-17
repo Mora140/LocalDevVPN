@@ -8,12 +8,16 @@ CURRENT_PROJECT_VERSION = 1
 DEVELOPMENT_TEAM = 42Q7QX86GV
 ORG_IDENTIFIER = com.jkcoxson
 
-// Codesigning settings defined optionally, see `CodeSigning.xcconfig.example`
+CODE_SIGN_STYLE = Automatic
+
+PROVISIONING_PROFILE_SPECIFIER =
+
+// Codesigning settings defined optionally, see `CodeSigning.xcconfig.sample`
 #include? "CodeSigning.xcconfig"
 
 ORG_PREFIX = $(ORG_IDENTIFIER)
 
-PRODUCT_BUNDLE_IDENTIFIER =  $(ORG_PREFIX).LocalDevVPN
+PRODUCT_BUNDLE_IDENTIFIER = $(ORG_PREFIX).LocalDevVPN
 
 TUNNEL_NAME = TunnelProv
 

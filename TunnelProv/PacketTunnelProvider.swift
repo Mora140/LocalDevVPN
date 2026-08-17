@@ -6,34 +6,73 @@
 //
 
 import NetworkExtension
+#if DEBUG
+import os.log
+#endif
+
+@inline(__always)
+private func tunnelLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+    os_log("[TunnelProv] %{public}@", type: .error, message())
+#endif
+}
+
 
 class PacketTunnelProvider: NEPacketTunnelProvider {
-    var tunnelDeviceIp: String = "10.7.0.0"
-    var tunnelFakeIp: String = "10.7.0.1"
-    var tunnelSubnetMask: String = "255.255.255.0"
-    
-    private var deviceIpValue: UInt32 = 0
-    private var fakeIpValue: UInt32 = 0
+    var tunnelIfaceIP: String = TunnelConstants.defaultIfaceIP
+    var tunnelPeerIP: String = TunnelConstants.defaultPeerIP
     
     override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
-        if let deviceIp = options?["TunnelDeviceIP"] as? String {
-            tunnelDeviceIp = deviceIp
+        if let options = options {
+            for (key, val) in options {
+                tunnelLog("startTunnel option \(key) = \(String(describing: val))")
+            }
+        } else {
+            tunnelLog("startTunnel: options is nil")
         }
-        if let fakeIp = options?["TunnelFakeIP"] as? String {
-            tunnelFakeIp = fakeIp
+        
+        let providerConfiguration =
+            (protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration
+
+        if let ifaceIp = options?[TunnelConstants.ifaceIPConfigurationKey] as? String
+            ?? providerConfiguration?[TunnelConstants.ifaceIPConfigurationKey] as? String {
+            tunnelLog("TunnelIfaceIP configured as: \(ifaceIp)")
+            tunnelIfaceIP = ifaceIp
+        }
+        if let peerIp = options?[TunnelConstants.peerIPConfigurationKey] as? String
+            ?? providerConfiguration?[TunnelConstants.peerIPConfigurationKey] as? String {
+            tunnelLog("TunnelPeerIP configured as: \(peerIp)")
+            tunnelPeerIP = peerIp
         }
         
-        deviceIpValue = ipToUInt32(tunnelDeviceIp)
-        fakeIpValue = ipToUInt32(tunnelFakeIp)
+        let ifaceEndpoint = CIDREndpoint(tunnelIfaceIP, defaultPrefix: 24)
+        let peerEndpoint = CIDREndpoint(tunnelPeerIP, defaultPrefix: 32)
         
-        let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: tunnelDeviceIp)
-        let ipv4 = NEIPv4Settings(addresses: [tunnelDeviceIp], subnetMasks: [tunnelSubnetMask])
-        ipv4.includedRoutes = [NEIPv4Route(destinationAddress: tunnelDeviceIp, subnetMask: tunnelSubnetMask)]
-        ipv4.excludedRoutes = [.default()]
-        settings.ipv4Settings = ipv4
+        tunnelLog("Configuring P2P settings: peer=\(peerEndpoint.ip)/\(peerEndpoint.prefix) (\(peerEndpoint.subnetMask)), iface=\(ifaceEndpoint.ip)/\(ifaceEndpoint.prefix) (\(ifaceEndpoint.subnetMask))")
         
+        // tunnel iface configuration
+        let ifaceIPv4 = NEIPv4Settings(addresses: [ifaceEndpoint.ip], subnetMasks: [ifaceEndpoint.subnetMask])
+        let tunnelDestinationIPv4Routes = [
+            // actual destination routes of this VPN tunnel
+            NEIPv4Route(destinationAddress: peerEndpoint.ip, subnetMask: peerEndpoint.subnetMask)
+        ]
+        ifaceIPv4.includedRoutes = tunnelDestinationIPv4Routes
+        ifaceIPv4.excludedRoutes = [.default()]
+
+        // Tunneling config
+        let settings = NEPacketTunnelNetworkSettings(
+            // NOTE: 'tunnelRemoteAddress' is just for UI concerns and is not involved in routing
+            tunnelRemoteAddress: peerEndpoint.ip
+        )   
+        settings.ipv4Settings = ifaceIPv4
+        
+        tunnelLog("Calling setTunnelNetworkSettings...")
         setTunnelNetworkSettings(settings) { error in
-            guard error == nil else { return completionHandler(error) }
+            if let error = error {
+                tunnelLog("Failed to set settings: \(error.localizedDescription)")
+                return completionHandler(error)
+            }
+            tunnelLog("Tunnel network settings set successfully. Starting packet loops.")
             self.setPackets()
             completionHandler(nil)
         }
@@ -41,32 +80,20 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     
     func setPackets() {
         packetFlow.readPackets { [self] packets, protocols in
-            let fakeip = self.fakeIpValue
-            let deviceip = self.deviceIpValue
             var modified = packets
+            
             for i in modified.indices where protocols[i].int32Value == AF_INET && modified[i].count >= 20 {
                 modified[i].withUnsafeMutableBytes { bytes in
                     guard let ptr = bytes.baseAddress?.assumingMemoryBound(to: UInt32.self) else { return }
-                    let src = UInt32(bigEndian: ptr[3])
-                    let dst = UInt32(bigEndian: ptr[4])
-                    if src == deviceip { ptr[3] = fakeip.bigEndian }
-                    if dst == fakeip { ptr[4] = deviceip.bigEndian }
+                    let src = ptr[3]
+                    let dst = ptr[4]
+                    ptr[3] = dst
+                    ptr[4] = src
                 }
             }
+            
             self.packetFlow.writePackets(modified, withProtocols: protocols)
             setPackets()
         }
-    }
-
-    private func ipToUInt32(_ ipString: String) -> UInt32 {
-        let components = ipString.split(separator: ".")
-        guard components.count == 4,
-              let b1 = UInt32(components[0]),
-              let b2 = UInt32(components[1]),
-              let b3 = UInt32(components[2]),
-              let b4 = UInt32(components[3]) else {
-            return 0
-        }
-        return (b1 << 24) | (b2 << 16) | (b3 << 8) | b4
     }
 }

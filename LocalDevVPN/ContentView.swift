@@ -55,20 +55,30 @@ class TunnelManager: ObservableObject {
         #endif
     }()
 
-    private var tunnelDeviceIp: String {
-        UserDefaults.standard.string(forKey: "TunnelDeviceIP") ?? "10.7.0.0"
+    private var tunnelIfaceIP: String {
+        UserDefaults.standard.string(forKey: "TunnelIfaceIP") ?? TunnelConstants.defaultIfaceIP
     }
 
-    private var tunnelFakeIp: String {
-        UserDefaults.standard.string(forKey: "TunnelFakeIP") ?? "10.7.0.1"
-    }
-
-    private var tunnelSubnetMask: String {
-        UserDefaults.standard.string(forKey: "TunnelSubnetMask") ?? "255.255.255.0"
+    private var tunnelPeerIP: String {
+        UserDefaults.standard.string(forKey: "TunnelPeerIP") ?? TunnelConstants.defaultPeerIP
     }
 
     private var tunnelBundleId: String {
         Bundle.main.bundleIdentifier!.appending(".TunnelProv")
+    }
+
+    private func persistTunnelAddresses(in manager: NETunnelProviderManager) -> Bool {
+        guard let proto = manager.protocolConfiguration as? NETunnelProviderProtocol else {
+            VPNLogger.shared.log("Cannot persist tunnel addresses: invalid protocol configuration")
+            return false
+        }
+
+        var providerConfiguration = proto.providerConfiguration ?? [:]
+        providerConfiguration[TunnelConstants.ifaceIPConfigurationKey] = tunnelIfaceIP
+        providerConfiguration[TunnelConstants.peerIPConfigurationKey] = tunnelPeerIP
+        proto.providerConfiguration = providerConfiguration
+        manager.protocolConfiguration = proto
+        return true
     }
 
     enum TunnelStatus {
@@ -276,12 +286,16 @@ class TunnelManager: ObservableObject {
             let proto = NETunnelProviderProtocol()
             proto.providerBundleIdentifier = self.tunnelBundleId
             proto.serverAddress = "LocalDevVPN's Local Network Tunnel"
+            proto.providerConfiguration = [
+                TunnelConstants.ifaceIPConfigurationKey: self.tunnelIfaceIP,
+                TunnelConstants.peerIPConfigurationKey: self.tunnelPeerIP,
+            ]
             manager.protocolConfiguration = proto
 
             let onDemandRule = NEOnDemandRuleEvaluateConnection()
             onDemandRule.interfaceTypeMatch = .any
             onDemandRule.connectionRules = [NEEvaluateConnectionRule(
-                matchDomains: ["10.7.0.0", "10.7.0.1"],
+                matchDomains: [self.tunnelIfaceIP, self.tunnelPeerIP],
                 andAction: .connectIfNeeded
             )]
 
@@ -500,9 +514,8 @@ class TunnelManager: ObservableObject {
                 }
 
                 let options: [String: NSObject] = [
-                    "TunnelDeviceIP": self.tunnelDeviceIp as NSObject,
-                    "TunnelFakeIP": self.tunnelFakeIp as NSObject,
-                    "TunnelSubnetMask": self.tunnelSubnetMask as NSObject,
+                    TunnelConstants.ifaceIPConfigurationKey: self.tunnelIfaceIP as NSObject,
+                    TunnelConstants.peerIPConfigurationKey: self.tunnelPeerIP as NSObject,
                 ]
 
                 do {
@@ -537,6 +550,48 @@ class TunnelManager: ObservableObject {
         VPNLogger.shared.log("LocalDevVPN tunnel stop initiated")
 
         UserDefaults.standard.removeObject(forKey: "ShouldStartLocalDevVPNAfterDisconnect")
+    }
+
+    func updateConfigAndRestart(shouldRestart: Bool) {
+        if isSimulator { return }
+        
+        guard let manager = vpnManager else { return }
+        
+        manager.loadFromPreferences { [weak self] error in
+            guard let self = self else { return }
+            if let error = error {
+                VPNLogger.shared.log("Error loading preferences for update: \(error.localizedDescription)")
+                return
+            }
+
+            guard self.persistTunnelAddresses(in: manager) else { return }
+            
+            let onDemandRule = NEOnDemandRuleEvaluateConnection()
+            onDemandRule.interfaceTypeMatch = .any
+            onDemandRule.connectionRules = [NEEvaluateConnectionRule(
+                matchDomains: [self.tunnelIfaceIP, self.tunnelPeerIP],
+                andAction: .connectIfNeeded
+            )]
+            manager.onDemandRules = [onDemandRule]
+            manager.isOnDemandEnabled = true
+            manager.isEnabled = true
+            
+            manager.saveToPreferences { [weak self] error in
+                guard self != nil else { return }
+                if let error = error {
+                    VPNLogger.shared.log("Error saving updated preferences: \(error.localizedDescription)")
+                    return
+                }
+                
+                VPNLogger.shared.log("LocalDevVPN configuration updated successfully in preferences")
+                
+                if shouldRestart {
+                    VPNLogger.shared.log("Restarting LocalDevVPN tunnel to apply new configuration...")
+                    UserDefaults.standard.set(true, forKey: "ShouldStartLocalDevVPNAfterDisconnect")
+                    manager.connection.stopVPNTunnel()
+                }
+            }
+        }
     }
 
     func handleVPNStatusChange(notification: Notification) {
@@ -786,7 +841,7 @@ extension View {
 
 struct StatusOverviewCard: View {
     @StateObject private var tunnelManager = TunnelManager.shared
-    @AppStorage("TunnelDeviceIP") private var deviceIP = "10.7.0.0"
+    @AppStorage("TunnelIfaceIP") private var tunnelIfaceIP = TunnelConstants.defaultIfaceIP
 
     var body: some View {
         DashboardCard {
@@ -820,7 +875,7 @@ struct StatusOverviewCard: View {
     private var statusTip: String {
         switch tunnelManager.tunnelStatus {
         case .connected:
-            return String(format: NSLocalizedString("connected_to_ip", comment: ""), deviceIP)
+            return String(format: NSLocalizedString("connected_to_ip", comment: ""), tunnelIfaceIP)
         case .connecting:
             return NSLocalizedString("ios_might_ask_you_to_allow_the_vpn", comment: "")
         case .disconnecting:
@@ -972,9 +1027,8 @@ struct ConnectionButton: View {
 
 struct ConnectionStatsView: View {
     @StateObject private var tunnelManager = TunnelManager.shared
-    @AppStorage("TunnelDeviceIP") private var deviceIP = "10.7.0.0"
-    @AppStorage("TunnelFakeIP") private var fakeIP = "10.7.0.1"
-    @AppStorage("TunnelSubnetMask") private var subnetMask = "255.255.255.0"
+    @AppStorage("TunnelIfaceIP") private var tunnelIfaceIP = TunnelConstants.defaultIfaceIP
+    @AppStorage("TunnelPeerIP") private var tunnelPeerIP = TunnelConstants.defaultPeerIP
 
     var body: some View {
         DashboardCard {
@@ -994,26 +1048,19 @@ struct ConnectionStatsView: View {
                     .foregroundColor(.secondary)
 
                 ConnectionInfoRow(
-                    title: "local_device_ip",
-                    value: deviceIP,
-                    icon: "desktopcomputer"
-                )
-
-                ConnectionInfoRow(
                     title: "tunnel_ip",
-                    value: fakeIP,
+                    value: tunnelIfaceIP,
                     icon: "point.3.filled.connected.trianglepath.dotted"
                 )
 
                 ConnectionInfoRow(
-                    title: "subnet_mask",
-                    value: subnetMask,
-                    icon: "network"
+                    title: "device_ip",
+                    value: tunnelPeerIP,
+                    icon: "desktopcomputer"
                 )
             }
         }
     }
-
 }
 
 struct StatItemView: View {
@@ -1082,19 +1129,59 @@ struct DashboardCard<Content: View>: View {
 
 // MARK: - Updated SettingsView
 
+enum SettingsAlert: Identifiable {
+    case savePrompt
+    case discardPrompt
+    case fixErrors
+    case networkWarning
+    case restartApp
+
+    var id: Int { hashValue }
+}
+
 struct SettingsView: View {
     @Environment(\.presentationMode) var presentationMode
     @AppStorage("selectedLanguage") private var selectedLanguage = Locale.current.languageCode ?? "en"
-    @AppStorage("TunnelDeviceIP") private var deviceIP = "10.7.0.0"
-    @AppStorage("TunnelFakeIP") private var fakeIP = "10.7.0.1"
-    @AppStorage("TunnelSubnetMask") private var subnetMask = "255.255.255.0"
+    @AppStorage("TunnelIfaceIP") private var savedIfaceIP = TunnelConstants.defaultIfaceIP
+    @AppStorage("TunnelPeerIP") private var savedPeerIP = TunnelConstants.defaultPeerIP
+    @AppStorage("allowIntermediateAddresses") private var savedAllowIntermediate = TunnelConstants.defaultAllowIntermediateAddresses
     @AppStorage("autoConnect") private var autoConnect = false
     @AppStorage("shownTunnelAlert") private var shownTunnelAlert = false
     @StateObject private var tunnelManager = TunnelManager.shared
     @AppStorage("hasNotCompletedSetup") private var hasNotCompletedSetup = true
 
-    @State private var showNetworkWarning = false
-    @State private var showRestartPopUp = false
+    // Draft State (Edited in UI, only committed upon confirmation)
+    @State private var draftIfaceIP = ""
+    @State private var draftPeerIP = ""
+    @State private var draftAllowIntermediate = TunnelConstants.defaultAllowIntermediateAddresses
+
+    // Validation State
+    @State private var ifaceError: String? = nil
+    @State private var peerError: String? = nil
+    @State private var pairError: String? = nil
+    @State private var ifaceWarnings: [String] = []
+    @State private var peerWarnings: [String] = []
+
+    // Alert State (Single active alert to prevent SwiftUI collisions)
+    @State private var activeAlert: SettingsAlert? = nil
+
+    private var isDirty: Bool {
+        draftIfaceIP != savedIfaceIP ||
+        draftPeerIP != savedPeerIP ||
+        draftAllowIntermediate != savedAllowIntermediate
+    }
+
+    private var isValid: Bool {
+        ifaceError == nil && peerError == nil && pairError == nil
+    }
+
+    private var effectiveIfaceIP: String {
+        resolvedInput(draftIfaceIP, defaultValue: TunnelConstants.defaultIfaceIP)
+    }
+
+    private var effectivePeerIP: String {
+        resolvedInput(draftPeerIP, defaultValue: TunnelConstants.defaultPeerIP)
+    }
 
     var body: some View {
         NBNavigationStack {
@@ -1106,12 +1193,56 @@ struct SettingsView: View {
                     }
                 }
 
-                Section(header: Text("network_configuration")) {
-                    Group {
-                        networkConfigRow(label: "tunnel_ip", text: $deviceIP)
-                        networkConfigRow(label: "device_ip", text: $fakeIP)
-                        networkConfigRow(label: "subnet_mask", text: $subnetMask)
+                Section(
+                    header: Text("network_configuration"),
+                    footer: Text("allow_intermediate_addresses_desc")
+                ) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        networkConfigRow(
+                            label: "tunnel_ip",
+                            text: $draftIfaceIP,
+                            defaultValue: TunnelConstants.defaultIfaceIP
+                        )
+                        if let error = ifaceError {
+                            Text(error)
+                                .font(.caption2)
+                                .foregroundColor(.red)
+                        }
+                        ForEach(ifaceWarnings, id: \.self) { warning in
+                            Text(warning)
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                        }
                     }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        networkConfigRow(
+                            label: "device_ip",
+                            text: $draftPeerIP,
+                            defaultValue: TunnelConstants.defaultPeerIP
+                        )
+                        if let error = peerError {
+                            Text(error)
+                                .font(.caption2)
+                                .foregroundColor(.red)
+                        }
+                        ForEach(peerWarnings, id: \.self) { warning in
+                            Text(warning)
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                        }
+                    }
+
+                    if let pairErr = pairError {
+                        Text(pairErr)
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                    }
+
+                    Toggle("allow_intermediate_addresses", isOn: $draftAllowIntermediate)
+                        .onChange(of: draftAllowIntermediate) { _ in
+                            validateAll()
+                        }
                 }
 
                 Section(header: Text("app_information")) {
@@ -1147,39 +1278,85 @@ struct SettingsView: View {
                     .onChange(of: selectedLanguage) { newValue in
                         let languageCode = newValue
                         LanguageManager.shared.updateLanguage(to: languageCode)
-                        showRestartPopUp = true
-                    }
-                    .alert(isPresented: $showRestartPopUp) {
-                        Alert(
-                            title: Text("restart_title"),
-                            message: Text("restart_message"),
-                            dismissButton: .cancel(Text("understand_button")) {
-                                showRestartPopUp = true
-                            }
-                        )
+                        activeAlert = .restartApp
                     }
                 }
             }
-            .alert(isPresented: $showNetworkWarning) {
-                Alert(
-                    title: Text("warning_alert"),
-                    message: Text("warning_message"),
-                    dismissButton: .cancel(Text("understand_button")) {
-                        shownTunnelAlert = true
-
-                        deviceIP = "10.7.0.0"
-                        fakeIP = "10.7.0.1"
-                        subnetMask = "255.255.255.0"
-                    }
-                )
+            .onAppear {
+                draftIfaceIP = savedIfaceIP
+                draftPeerIP = savedPeerIP
+                draftAllowIntermediate = savedAllowIntermediate
+                validateAll()
             }
             .navigationTitle(Text("settings"))
             .tvOSNavigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("done") {
-                        dismiss()
+                        if isDirty {
+                            if isValid {
+                                activeAlert = .savePrompt
+                            } else {
+                                activeAlert = .fixErrors
+                            }
+                        } else {
+                            dismiss()
+                        }
                     }
+                }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("cancel") {
+                        if isDirty {
+                            activeAlert = .discardPrompt
+                        } else {
+                            dismiss()
+                        }
+                    }
+                }
+            }
+            .alert(item: $activeAlert) { alertType in
+                switch alertType {
+                case .savePrompt:
+                    return Alert(
+                        title: Text("Save Configuration Changes?"),
+                        message: Text("Do you want to save and apply the new network configuration?"),
+                        primaryButton: .default(Text("Save & Apply")) {
+                            saveAndApply()
+                        },
+                        secondaryButton: .cancel(Text("cancel"))
+                    )
+                case .discardPrompt:
+                    return Alert(
+                        title: Text("Discard Changes?"),
+                        message: Text("You have unsaved changes. Are you sure you want to discard them?"),
+                        primaryButton: .destructive(Text("Discard")) {
+                            dismiss()
+                        },
+                        secondaryButton: .cancel(Text("cancel"))
+                    )
+                case .fixErrors:
+                    return Alert(
+                        title: Text("Invalid Configuration"),
+                        message: Text("Please resolve all configuration errors before saving."),
+                        dismissButton: .default(Text("OK"))
+                    )
+                case .networkWarning:
+                    return Alert(
+                        title: Text("warning_alert"),
+                        message: Text("warning_message"),
+                        dismissButton: .cancel(Text("understand_button")) {
+                            shownTunnelAlert = true
+                            draftIfaceIP = TunnelConstants.defaultIfaceIP
+                            draftPeerIP = TunnelConstants.defaultPeerIP
+                            validateAll()
+                        }
+                    )
+                case .restartApp:
+                    return Alert(
+                        title: Text("restart_title"),
+                        message: Text("restart_message"),
+                        dismissButton: .cancel(Text("understand_button"))
+                    )
                 }
             }
         }
@@ -1189,23 +1366,82 @@ struct SettingsView: View {
         presentationMode.wrappedValue.dismiss()
     }
 
-    private func networkConfigRow(label: LocalizedStringKey, text: Binding<String>) -> some View {
+    private func saveAndApply() {
+        savedIfaceIP = effectiveIfaceIP
+        savedPeerIP = effectivePeerIP
+        savedAllowIntermediate = draftAllowIntermediate
+
+        let isRunning = tunnelManager.tunnelStatus == .connected || tunnelManager.tunnelStatus == .connecting
+        tunnelManager.updateConfigAndRestart(shouldRestart: isRunning)
+        dismiss()
+    }
+
+    private func validateAll() {
+        ifaceError = nil
+        peerError = nil
+        pairError = nil
+        ifaceWarnings = []
+        peerWarnings = []
+
+        do {
+            let res = try CIDRValidator.shared.validateCIDR(
+                effectiveIfaceIP,
+                isRouteDestination: false,
+                allowIntermediateAddresses: true,
+                defaultPrefix: 24
+            )
+            ifaceWarnings = res.warnings
+        } catch {
+            ifaceError = error.localizedDescription
+        }
+
+        do {
+            let res = try CIDRValidator.shared.validateCIDR(
+                effectivePeerIP,
+                isRouteDestination: true,
+                allowIntermediateAddresses: draftAllowIntermediate,
+                defaultPrefix: 24
+            )
+            peerWarnings = res.warnings
+        } catch {
+            peerError = error.localizedDescription
+        }
+
+        if ifaceError == nil && peerError == nil {
+            do {
+                _ = try CIDRValidator.shared.validatePair(
+                    tunnelIfaceInput: effectiveIfaceIP,
+                    tunnelPeerInput: effectivePeerIP,
+                    allowIntermediateAddresses: draftAllowIntermediate
+                )
+            } catch {
+                pairError = error.localizedDescription
+            }
+        }
+    }
+
+    private func resolvedInput(_ input: String, defaultValue: String) -> String {
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedInput.isEmpty ? defaultValue : trimmedInput
+    }
+
+    private func networkConfigRow(
+        label: LocalizedStringKey,
+        text: Binding<String>,
+        defaultValue: String
+    ) -> some View {
         HStack {
             Text(label)
             Spacer()
-            TextField(label, text: text)
+            TextField(defaultValue, text: text)
                 .multilineTextAlignment(.trailing)
                 .foregroundColor(.secondary)
                 .keyboardType(.numbersAndPunctuation)
+                .accessibilityLabel(Text(label))
                 .onChange(of: text.wrappedValue) { _ in
+                    validateAll()
                     if !shownTunnelAlert {
-                        showNetworkWarning = true
-                    }
-
-                    tunnelManager.vpnManager?.saveToPreferences { error in
-                        if let error = error {
-                            VPNLogger.shared.log(error.localizedDescription)
-                        }
+                        activeAlert = .networkWarning
                     }
                 }
         }
