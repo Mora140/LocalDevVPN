@@ -15,27 +15,5 @@ CODE_SIGN_STYLE = Automatic
 // If using Manual signing, specify the name or UUID of the provisioning profile:
 // PROVISIONING_PROFILE_SPECIFIER =
 
-// Name of the iOS development signing certificate, you probably do not need
-// to change this.
-CODE_SIGN_IDENTITY_IOS = Apple Development
-
-// Name of the tvOS development signing certificate, you probably do not need
-// to change this.
-CODE_SIGN_IDENTITY_TVOS = Apple Development
-
-// The values below are specific to macOS development. If you do not define
-// these keys, the build will default to ad-hoc signing. You will need to
-// follow `Documentation/MacDevelopment.md` to disable library verification and
-// remove unsupported entitlements.
-
-// Name of the macOS development signing certificate. Comment out this line to
-// use ad-hoc signing.
-CODE_SIGN_IDENTITY_MAC = Apple Development
-
-// Create a Mac provisioning profile for com.myuniquename.UTM with the
-// Hypervisor entitlements and get its UUID. If you do not have access to these
-// entitlements, comment out the line and delete the following entitlements
-//   - com.apple.vm.device-access
-// from the following file
-//   - Provenance/macOS.entitlements
-PROVISIONING_PROFILE_SPECIFIER_MAC = 00000000-1111-2222-3333-444444444444
+// Automatic signing lets Xcode select the appropriate development certificate.
+// Set CODE_SIGN_IDENTITY only when using manual signing.

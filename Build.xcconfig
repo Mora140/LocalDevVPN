@@ -9,21 +9,11 @@ DEVELOPMENT_TEAM = 42Q7QX86GV
 ORG_IDENTIFIER = com.jkcoxson
 
 CODE_SIGN_STYLE = Automatic
-CODE_SIGN_IDENTITY = Apple Distribution
-CODE_SIGN_IDENTITY_IOS  = $(CODE_SIGN_IDENTITY)
-CODE_SIGN_IDENTITY_TVOS = $(CODE_SIGN_IDENTITY)
-CODE_SIGN_IDENTITY_MAC  = $(CODE_SIGN_IDENTITY)
 
 PROVISIONING_PROFILE_SPECIFIER =
 
 // Codesigning settings defined optionally, see `CodeSigning.xcconfig.sample`
 #include? "CodeSigning.xcconfig"
-
-CODE_SIGN_IDENTITY[sdk=iphoneos*]           = $(CODE_SIGN_IDENTITY_IOS)
-CODE_SIGN_IDENTITY[sdk=iphonesimulator*]    = $(CODE_SIGN_IDENTITY_IOS)
-CODE_SIGN_IDENTITY[sdk=appletvos*]          = $(CODE_SIGN_IDENTITY_TVOS)
-CODE_SIGN_IDENTITY[sdk=appletvsimulator*]   = $(CODE_SIGN_IDENTITY_TVOS)
-CODE_SIGN_IDENTITY[sdk=macosx*]             = $(CODE_SIGN_IDENTITY_MAC)
 
 ORG_PREFIX = $(ORG_IDENTIFIER)
 
