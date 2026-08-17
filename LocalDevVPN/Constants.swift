@@ -9,7 +9,7 @@
 import Foundation
 
 struct TunnelConstants {
-    static let defaultIfaceIP = "10.7.0.0/24"
-    static let defaultPeerIP = "11.7.0.0/24"
-    static let defaultAllowIntermediateAddresses = false
+    static let defaultIfaceIP = "10.7.1.1/32"
+    static let defaultPeerIP = "10.7.0.1/32"
+    static let defaultAllowIntermediateAddresses = true
 }
