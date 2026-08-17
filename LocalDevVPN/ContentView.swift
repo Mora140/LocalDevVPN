@@ -67,6 +67,20 @@ class TunnelManager: ObservableObject {
         Bundle.main.bundleIdentifier!.appending(".TunnelProv")
     }
 
+    private func persistTunnelAddresses(in manager: NETunnelProviderManager) -> Bool {
+        guard let proto = manager.protocolConfiguration as? NETunnelProviderProtocol else {
+            VPNLogger.shared.log("Cannot persist tunnel addresses: invalid protocol configuration")
+            return false
+        }
+
+        var providerConfiguration = proto.providerConfiguration ?? [:]
+        providerConfiguration[TunnelConstants.ifaceIPConfigurationKey] = tunnelIfaceIP
+        providerConfiguration[TunnelConstants.peerIPConfigurationKey] = tunnelPeerIP
+        proto.providerConfiguration = providerConfiguration
+        manager.protocolConfiguration = proto
+        return true
+    }
+
     enum TunnelStatus {
         case disconnected
         case connecting
@@ -272,6 +286,10 @@ class TunnelManager: ObservableObject {
             let proto = NETunnelProviderProtocol()
             proto.providerBundleIdentifier = self.tunnelBundleId
             proto.serverAddress = "LocalDevVPN's Local Network Tunnel"
+            proto.providerConfiguration = [
+                TunnelConstants.ifaceIPConfigurationKey: self.tunnelIfaceIP,
+                TunnelConstants.peerIPConfigurationKey: self.tunnelPeerIP,
+            ]
             manager.protocolConfiguration = proto
 
             let onDemandRule = NEOnDemandRuleEvaluateConnection()
@@ -496,8 +514,8 @@ class TunnelManager: ObservableObject {
                 }
 
                 let options: [String: NSObject] = [
-                    "TunnelIfaceIP": self.tunnelIfaceIP as NSObject,
-                    "TunnelPeerIP": self.tunnelPeerIP as NSObject,
+                    TunnelConstants.ifaceIPConfigurationKey: self.tunnelIfaceIP as NSObject,
+                    TunnelConstants.peerIPConfigurationKey: self.tunnelPeerIP as NSObject,
                 ]
 
                 do {
@@ -545,6 +563,8 @@ class TunnelManager: ObservableObject {
                 VPNLogger.shared.log("Error loading preferences for update: \(error.localizedDescription)")
                 return
             }
+
+            guard self.persistTunnelAddresses(in: manager) else { return }
             
             let onDemandRule = NEOnDemandRuleEvaluateConnection()
             onDemandRule.interfaceTypeMatch = .any

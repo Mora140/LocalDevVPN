@@ -31,12 +31,17 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             tunnelLog("startTunnel: options is nil")
         }
         
-        if let ifaceIp = options?["TunnelIfaceIP"] as? String {
-            tunnelLog("Option TunnelIfaceIP overridden to: \(ifaceIp)")
+        let providerConfiguration =
+            (protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration
+
+        if let ifaceIp = options?[TunnelConstants.ifaceIPConfigurationKey] as? String
+            ?? providerConfiguration?[TunnelConstants.ifaceIPConfigurationKey] as? String {
+            tunnelLog("TunnelIfaceIP configured as: \(ifaceIp)")
             tunnelIfaceIP = ifaceIp
         }
-        if let peerIp = options?["TunnelPeerIP"] as? String {
-            tunnelLog("Option TunnelPeerIP overridden to: \(peerIp)")
+        if let peerIp = options?[TunnelConstants.peerIPConfigurationKey] as? String
+            ?? providerConfiguration?[TunnelConstants.peerIPConfigurationKey] as? String {
+            tunnelLog("TunnelPeerIP configured as: \(peerIp)")
             tunnelPeerIP = peerIp
         }
         
