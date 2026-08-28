@@ -37,6 +37,7 @@ the bridge is bound to `127.0.0.1`, which is not routed through the tunnel.
 | `LocalDevVPN/Pairing/DevicePairingService.swift` | Pairing flow, provider seam, flow state |
 | `LocalDevVPN/Pairing/PairingBridge.swift` | Sessions, authorization, routing |
 | `LocalDevVPN/Pairing/PairingHTTPServer.swift` | Loopback-only HTTP/1.1 server |
+| `LocalDevVPN/Pairing/PairingHTTPMessages.swift` | HTTP request parsing and response building |
 | `LocalDevVPN/Pairing/PairingBridgeViews.swift` | Settings section, authorization prompt |
 
 ## Turning it on
