@@ -152,3 +152,22 @@
 "restart_message" = "To apply the changes, you need to restart the application.";
 "confirmYes" = "Yes";
 "confirmNo" = "No";
+
+/* MARK: Pairing Bridge */
+"pairing_bridge" = "Pairing Bridge";
+"pairing_bridge_allow" = "Allow local web clients";
+"pairing_bridge_address" = "Address";
+"pairing_bridge_footer" = "Lets a web page on this device ask LocalDevVPN for a pairing record over 127.0.0.1. Nothing is shared until you approve the request, and the record never leaves the device.";
+"pairing_record" = "Pairing record";
+"pairing_record_none" = "None";
+"pairing_import_file" = "Import Pairing File…";
+"pairing_remove_record" = "Remove Pairing Record";
+"pairing_revoke_all" = "Revoke All Access";
+"pairing_record_shared_at" = "Pairing record shared %@";
+"pairing_authorized_at" = "Authorized %@";
+"pairing_request_title" = "Pairing request";
+"pairing_origin_unverified" = "Site name reported by the client — unverified";
+"pairing_request_body" = "%@ is asking LocalDevVPN for this device's pairing record. Only approve this if you started it.";
+"pairing_code_hint" = "Approve only if the site shows this code.";
+"pairing_deny" = "Deny";
+"pairing_approve" = "Approve";

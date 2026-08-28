@@ -25,3 +25,8 @@ Key Features:
   connections. 
   
   Requires iOS 14.0 or later.
+
+## Pairing bridge
+LocalDevVPN can also act as the native half of a web-based iOS signer: it runs the device pairing flow and hands the resulting pairing record to a local web client over
+`http://127.0.0.1`, but only after you approve the request in the app. The bridge is off by default, the record never leaves the device, and no page can read it without an
+explicit approval. See [docs/pairing-bridge.md](docs/pairing-bridge.md) for the API, the security model, and the iOS limitations involved.

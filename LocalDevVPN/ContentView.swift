@@ -778,6 +778,7 @@ class TunnelManager: ObservableObject {
 
 struct ContentView: View {
     @StateObject private var tunnelManager = TunnelManager.shared
+    @ObservedObject private var pairingBridge = PairingBridge.shared
     @State private var showSettings = false
     @State var tunnel = false
     @AppStorage("autoConnect") private var autoConnect = false
@@ -785,6 +786,18 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        ZStack {
+            dashboard
+            PairingAuthorizationOverlay()
+        }
+        .onChange(of: pairingBridge.pendingRequest) { request in
+            // The authorization prompt is an overlay on the root view, so anything
+            // presented on top of it has to get out of the way first.
+            if request != nil { showSettings = false }
+        }
+    }
+
+    private var dashboard: some View {
         NBNavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
@@ -1238,6 +1251,8 @@ struct SettingsView: View {
                         Label("connection_logs", systemImage: "doc.text")
                     }
                 }
+
+                PairingBridgeSection()
 
                 Section(
                     header: Text("network_configuration"),

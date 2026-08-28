@@ -42,8 +42,30 @@ struct LocalDevVPNApp: App {
                     UIApplication.shared.open(callbackURL)
                 }
             }
+        case "pair":
+            handlePairingRequest(url)
         default:
             break
         }
+    }
+
+    /// `localdevvpn://pair?client=…&callback=https://…&state=…`
+    ///
+    /// The web-facing half of the pairing bridge. A page in Safari cannot reach a
+    /// suspended app, so the site sends the user here instead: LocalDevVPN comes to
+    /// the front, asks for authorization, and — once the user approves — hands the
+    /// access token back through the callback's fragment.
+    private func handlePairingRequest(_ url: URL) {
+        let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+        let callback = queryItems?
+            .first(where: { $0.name == "callback" })?
+            .value
+            .flatMap { URL(string: $0) }
+
+        PairingBridge.shared.handleDeepLinkRequest(
+            client: queryItems?.first(where: { $0.name == "client" })?.value,
+            callback: callback,
+            state: queryItems?.first(where: { $0.name == "state" })?.value
+        )
     }
 }
