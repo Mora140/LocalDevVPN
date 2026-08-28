@@ -265,8 +265,10 @@ There is no way around this with public API — background listeners require a
 
 * One request per connection, no keep-alive; 64 KB body cap, 96 KB request cap,
   15 s idle timeout.
-* The listener binds `127.0.0.1` only, and non-loopback peers are dropped at
-  accept time as a second check.
+* The listener binds `127.0.0.1` only via `NWParameters.requiredLocalEndpoint`,
+  and non-loopback peers are dropped at accept time as well — that parameter has
+  been reported ignored on some platforms, and a bridge listening off loopback
+  would be a real problem.
 * The port is not fixed. Probe `19842`–`19844`; a client that hard-codes one port
   will break when something else holds it.
 * The bridge is unaffected by the tunnel: loopback traffic never enters the
