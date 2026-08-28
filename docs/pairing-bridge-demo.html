@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LocalDevVPN pairing bridge — test client</title>
+<style>
+  body { font: 15px/1.5 -apple-system, system-ui, sans-serif; margin: 0; padding: 20px; }
+  h1 { font-size: 20px; }
+  button { font: inherit; padding: 10px 14px; margin: 4px 4px 4px 0; border-radius: 10px;
+           border: 1px solid #8884; background: #f4f4f7; }
+  button:disabled { opacity: .45; }
+  code, pre { font-family: ui-monospace, Menlo, monospace; }
+  pre { background: #f4f4f7; padding: 12px; border-radius: 10px; overflow-x: auto; font-size: 13px; }
+  .code { font-size: 32px; letter-spacing: 4px; font-weight: 700; }
+  .muted { color: #666; font-size: 13px; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #111; color: #eee; }
+    button { background: #222; color: #eee; }
+    pre { background: #1b1b1b; }
+    .muted { color: #999; }
+  }
+</style>
+</head>
+<body>
+<h1>LocalDevVPN pairing bridge</h1>
+<p class="muted">Test client for the local pairing API. Everything happens on this device;
+nothing is sent anywhere.</p>
+
+<p>
+  <button id="probe">1. Find bridge</button>
+  <button id="deeplink">2a. Authorize via app</button>
+  <button id="session" disabled>2b. Authorize via code</button>
+  <button id="pair" disabled>3. Start pairing</button>
+  <button id="record" disabled>4. Get pairing record</button>
+  <button id="tunnel" disabled>Start tunnel</button>
+</p>
+
+<div id="codeBox" hidden>
+  <p class="muted">Approve this code in LocalDevVPN:</p>
+  <p class="code" id="codeValue"></p>
+</div>
+
+<pre id="log">Ready.</pre>
+
+<script>
+const PORTS = [19842, 19843, 19844];
+const CLIENT = 'Pairing bridge demo';
+const state = { base: null, sessionId: null, token: null, poll: null };
+const el = (id) => document.getElementById(id);
+
+function log(...parts) {
+  const line = parts.map((p) => (typeof p === 'string' ? p : JSON.stringify(p, null, 2))).join(' ');
+  el('log').textContent = line + '\n\n' + el('log').textContent;
+}
+
+async function call(path, options = {}) {
+  const headers = Object.assign({ 'X-LocalDevVPN-Client': CLIENT }, options.headers || {});
+  if (options.body) headers['Content-Type'] = 'application/json';
+  if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
+  const response = await fetch(state.base + path, Object.assign({}, options, { headers }));
+  const text = await response.text();
+  let payload = text;
+  try { payload = JSON.parse(text); } catch (_) { /* raw body */ }
+  if (!response.ok) throw new Error(response.status + ' ' + JSON.stringify(payload));
+  return payload;
+}
+
+// The app sends the token back in the fragment after the user approves.
+(function readCallback() {
+  if (!location.hash) return;
+  const params = new URLSearchParams(location.hash.slice(1));
+  if (!params.get('ldv_token')) return;
+  state.token = params.get('ldv_token');
+  state.sessionId = params.get('ldv_session');
+  state.base = 'http://127.0.0.1:' + (params.get('ldv_port') || PORTS[0]);
+  history.replaceState(null, '', location.pathname + location.search);
+  ['pair', 'record', 'tunnel'].forEach((id) => (el(id).disabled = false));
+  log('Authorized by the app. Bridge at ' + state.base);
+})();
+
+el('probe').onclick = async () => {
+  for (const port of PORTS) {
+    state.base = 'http://127.0.0.1:' + port;
+    try {
+      const status = await call('/v1/status');
+      log('Found bridge on port ' + port, status);
+      el('session').disabled = false;
+      return;
+    } catch (error) {
+      log('Port ' + port + ': ' + error.message);
+    }
+  }
+  state.base = null;
+  log('No bridge found. Open LocalDevVPN and enable the pairing bridge.');
+};
+
+el('deeplink').onclick = () => {
+  const callback = location.origin + location.pathname;
+  location.href = 'localdevvpn://pair?client=' + encodeURIComponent(CLIENT) +
+    '&callback=' + encodeURIComponent(callback) + '&state=demo';
+};
+
+el('session').onclick = async () => {
+  const session = await call('/v1/sessions', {
+    method: 'POST',
+    body: JSON.stringify({ client: CLIENT, origin: location.origin })
+  });
+  state.sessionId = session.session_id;
+  el('codeValue').textContent = session.verification_code;
+  el('codeBox').hidden = false;
+  log('Waiting for approval in LocalDevVPN…', session);
+
+  clearInterval(state.poll);
+  state.poll = setInterval(async () => {
+    try {
+      const current = await call('/v1/sessions/' + state.sessionId);
+      if (current.state === 'authorized') {
+        clearInterval(state.poll);
+        state.token = current.access_token;
+        el('codeBox').hidden = true;
+        ['pair', 'record', 'tunnel'].forEach((id) => (el(id).disabled = false));
+        log('Authorized.', current);
+      } else if (current.state !== 'pending_authorization') {
+        clearInterval(state.poll);
+        log('Request ended: ' + current.state);
+      }
+    } catch (error) {
+      clearInterval(state.poll);
+      log('Polling stopped: ' + error.message);
+    }
+  }, 1000);
+};
+
+el('pair').onclick = async () => {
+  log('Pairing…', await call('/v1/sessions/' + state.sessionId + '/pairing', { method: 'POST' }));
+  log('Poll the session for pairing.state; finish any step the app asks for.');
+};
+
+el('record').onclick = async () => {
+  const record = await call('/v1/pairing-record');
+  log('Got pairing record ' + record.fingerprint + ' (' +
+      atob(record.data).length + ' bytes). Keep it local.');
+};
+
+el('tunnel').onclick = async () => {
+  log('Tunnel', await call('/v1/tunnel', { method: 'POST', body: JSON.stringify({ action: 'start' }) }));
+};
+</script>
+</body>
+</html>
